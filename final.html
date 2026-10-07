@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Call List</title>
+<style>
+  :root { --bg:#f4f5f7; --card:#fff; --ink:#1d2330; --muted:#566074; --line:#d5d9e1; --ok:#14673a; --bad:#a61b1b; --na:#8a4b00; --focus:#1f5fd6; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#12151b; --card:#1b2029; --ink:#eef0f4; --muted:#a3acbd; --line:#323a48; --ok:#6fd49a; --bad:#ff8f8f; --na:#f0b35a; --focus:#7fa9ff; } }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:16px; background:var(--bg); color:var(--ink); font:16px/1.45 system-ui,sans-serif; }
+  main { max-width:720px; margin:0 auto; }
+  h1 { font-size:1.25rem; margin:0 0 12px; }
+  label { display:block; font-weight:600; margin-bottom:4px; }
+  input { width:100%; padding:12px; font-size:1rem; color:var(--ink); background:var(--card); border:1px solid var(--line); border-radius:8px; }
+  :focus-visible { outline:3px solid var(--focus); outline-offset:2px; }
+  #count { color:var(--muted); font-size:.875rem; margin:8px 0 12px; }
+  ul { list-style:none; margin:0; padding:0; display:grid; gap:10px; }
+  li { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px; }
+  .row { display:flex; justify-content:space-between; align-items:flex-start; gap:8px 12px; flex-wrap:wrap; }
+  .name { font-weight:600; overflow-wrap:anywhere; }
+  .tag { font-size:.8125rem; font-weight:600; white-space:nowrap; }
+  .answered { color:var(--ok); } .failed { color:var(--bad); } .no_answer { color:var(--na); }
+  .len { color:var(--muted); font-size:.875rem; margin:2px 0 6px; }
+  .sum { margin:0; overflow-wrap:anywhere; }
+  .sum.clamp { display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
+  .none { color:var(--muted); font-style:italic; }
+  button { margin-top:6px; padding:8px 0; min-height:44px; background:none; border:0; color:var(--focus); font:inherit; font-weight:600; cursor:pointer; }
+  #empty { text-align:center; color:var(--muted); padding:32px 8px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Call list</h1>
+  <label for="q">Search by name</label>
+  <input id="q" type="search" autocomplete="off" placeholder="e.g. Sharma">
+  <p id="count" aria-live="polite"></p>
+  <ul id="list"></ul>
+  <p id="empty" hidden></p>
+</main>
+
+<script>
+const raw = [
+  {"id": 1, "name": "Anita Sharma", "status": "answered", "duration_secs": 137, "summary": "Booked a follow-up for Friday."},
+  {"id": 2, "name": "Rahul Shah", "status": "failed", "duration_secs": 0, "summary": ""},
+  {"id": 3, "name": null, "status": "answered", "duration_secs": 64, "summary": "Asked about clinic timings."},
+  {"id": 4, "name": "Mohammed Irfan Abdul Rahman Siddiqui", "status": "answered", "duration_secs": 3725, "summary": "Called about his mother's knee surgery. Wanted to know the cost, how many days she would stay, whether insurance is accepted, what to bring on the day, and if the doctor could call him back personally before he decides. Asked the same questions again for his father."},
+  {"id": 5, "name": "priya nair", "status": "no_answer", "duration_secs": 0, "summary": ""},
+  {"id": 6, "name": "Deepak Verma", "status": "answered", "duration_secs": 212, "summary": "Said the doctor was <b>very</b> helpful."},
+  {"id": 7, "name": "Sunita Rao", "status": "answered", "duration_secs": 59, "summary": "Rescheduled to Monday."},
+  {"id": 7, "name": "Sunita Rao", "status": "answered", "duration_secs": 59, "summary": "Rescheduled to Monday."}
+];
+
+const LABEL = { answered: "✓ Answered", failed: "✕ Failed", no_answer: "○ No answer" };
+const titleCase = s => s.replace(/\S+/g, w => w[0].toUpperCase() + w.slice(1).toLowerCase());
+const plain = html => new DOMParser().parseFromString(html || "", "text/html").body.textContent.trim();
+
+function length(s) {
+  if (!s) return "No conversation";
+  const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), sec = s % 60;
+  return h ? `${h} h ${m} min` : m ? `${m} min ${sec} s` : `${sec} s`;
+}
+
+// one row per id, names cleaned once, summaries stripped of markup
+const calls = [...new Map(raw.map(c => [c.id, c])).values()].map(c => ({
+  ...c, name: c.name ? titleCase(c.name.trim()) : "Unknown caller", summary: plain(c.summary)
+}));
+
+const list = document.getElementById("list"), q = document.getElementById("q");
+const count = document.getElementById("count"), empty = document.getElementById("empty");
+
+function card(c) {
+  const li = document.createElement("li");
+  li.innerHTML = '<div class="row"><span class="name"></span><span class="tag"></span></div><div class="len"></div><p class="sum"></p>';
+  li.querySelector(".name").textContent = c.name;
+  const tag = li.querySelector(".tag"); tag.textContent = LABEL[c.status] || c.status; tag.className = "tag " + c.status;
+  li.querySelector(".len").textContent = length(c.duration_secs);
+  const sum = li.querySelector(".sum");
+  if (!c.summary) { sum.textContent = "No summary"; sum.className = "sum none"; return li; }
+  sum.textContent = c.summary;
+  if (c.summary.length > 120) {
+    sum.classList.add("clamp");
+    const b = document.createElement("button"); b.type = "button"; b.textContent = "Show more"; b.setAttribute("aria-expanded", "false");
+    b.onclick = () => { const open = sum.classList.toggle("clamp") === false; b.textContent = open ? "Show less" : "Show more"; b.setAttribute("aria-expanded", open); };
+    li.append(b);
+  }
+  return li;
+}
+
+function render() {
+  const term = q.value.trim().toLowerCase();
+  const shown = calls.filter(c => c.name.toLowerCase().includes(term));
+  list.replaceChildren(...shown.map(card));
+  count.textContent = term ? `${shown.length} of ${calls.length} calls` : `${calls.length} calls`;
+  empty.hidden = shown.length > 0;
+  empty.textContent = `No calls match “${q.value.trim()}”. Check the spelling or clear the search.`;
+}
+q.addEventListener("input", render);
+render();
+</script>
+</body>
+</html>
